@@ -5,3 +5,4 @@
 *.key
 *.pem
 
+workspace/jupyter_notebook/EDA/data/loan.csv

@@ -1,0 +1,14 @@
+
+1) 엑셀 
+2) 테블로 - 유료 [BI] / BI툴 잘 사용하지 않는다 ->  대체 - 파이썬 +웹 
+3) 파워 BI 
+
+파이썬 시각화 라이브러리 
+
+- Matplotlib - 기본 그래프 
+- Seaborn    -  
+- Plotly - https://plotly.com/ 
+
+
+
+

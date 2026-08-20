@@ -1,0 +1,22 @@
+# 시각화 라이브러리 
+import matplotlib.pyplot as plt   
+import seaborn as sns
+import plotly as px
+import folium 
+
+
+# 한글 폰트 설정
+plt.rcParams['font.family'] = 'Malgun Gothic'  # 한글 폰트 지정
+plt.rcParams['axes.unicode_minus'] = False
+
+
+
+
+
+# csv 저장 
+df.to_csv('./data/sales_data.csv',index=False, encoding='utf-8-sig')
+
+# csv 불러오기 
+df = pd.read_csv('./data/sales_data.csv') 
+df['data']=pd.to_datetime(df['date']) #string 에서 datetime으로 타입 변경 
+df.head()

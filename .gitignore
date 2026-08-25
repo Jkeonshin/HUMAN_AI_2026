@@ -6,3 +6,4 @@
 *.pem
 
 workspace/jupyter_notebook/EDA/data/loan.csv
+workspace/jupyter_notebook/Sound/best_instrument_cnn_model.keras

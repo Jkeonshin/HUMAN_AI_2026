@@ -1,0 +1,17 @@
+yolo 실습 
+
+PyCharm 으로 진행 
+1) file - settings - Interpreter 를 가상 경로로 설정 
+2) 파일생성 
+3) 패키지 다운 
+- 아나콘다 접속 
+- 가상환경으로 
+   activate ai 명령어로 (ai)에서 진행 
+pip install ultralytics opencv-python numpy deep-sort-realtime
+python -m pip install --upgrade pip
+python -m pip install "setuptools<81"
+
+말벌 침입 감지 시스템  / 지게차 충돌 감지 예측 시스템 / 제조현장에서 활용할 수 있는 이상감지 
+
+코드 실행은 파이썬에서 하는게 아니고 
+(ai) C:\workspace\yolo>python DeepSort.py --source ./data/collision2.mp4

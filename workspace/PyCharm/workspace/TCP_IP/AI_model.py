@@ -127,3 +127,4 @@ print("\n클래스 목록\n")
 
 for idx, name in enumerate(CLASS_NAMES):
     print(idx, ":", name)
+

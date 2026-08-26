@@ -5,20 +5,20 @@ kafka producer topic으로 들어오는 센서 데이터를
 3초단위로 그래프를 업데이트 한다
 
 실행
--> producer_10hz.py
+-> producer_10kz.py
 -> consumer_force_3second.py
 '''
 # =========================================================
 
-from kafka import KafkaConsumer
-import json
-import time
-import matplotlib.pyplot as plt    # 데이터 시각화 처리
+from kafka import KafkaConsumer  # kafka에서 데이터를 받는다
+import json                      # kafka로 받은 json 데이터를 -> python데이터로 변환
+import time                      # 시간계산
+import matplotlib.pyplot as plt    # 데이터 시각화 처리       matplotlib= 그래프를 그린다.
 from collections import deque      # 데이터 저장
 
 # kafka 객체 생성
 consumer = KafkaConsumer(
-    "press-force",
+    "press-force",                   #Topic을 구독
     bootstrap_servers=['localhost:9092'],
     auto_offset_reset='latest',
     group_id='graph-consumer-group',

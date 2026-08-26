@@ -41,7 +41,7 @@ for message in consumer:
               f"누적 수신{total_count} 건, "
               f"최근 force={data['force']}"
               )
+
         count_per_second = 0    # 1초 단위 카운터를 다시 0으로 초기화
 
         start_time = current_time  # tps 측정 시작 시간을 현재 시간으로 갱신
-

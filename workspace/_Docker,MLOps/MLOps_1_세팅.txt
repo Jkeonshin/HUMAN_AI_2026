@@ -1,0 +1,235 @@
+====================================
+[1] Ubuntu 설치 
+====================================
+> Powershell 실행 
+> wsl —install (Ubuntu 설치 / 계정설정)
+    
+
+====================================
+[2] 파이썬 설치 - 우분투에서 진행
+====================================
+
+sudo apt update
+sodo apt install python3 python3-pip -y
+python3 --version
+
+====================================
+[3] Docker Desktop 설치 + WSL 2 inter
+====================================
+https://www.docker.com/products/docker-desktop/?utm_source=chatgpt.com
+
+도커 데스크탑에서 
+#설정  
+Docker Desktop → Setting → Resources → WSL integration 
+
+> 체크 - Enable integration with my default WSL distro 
+> Ubuntu 체크
+
+파워셀에서 확인 
+> docker --version
+> docker run hello-world
+> docker ps
+
+====================================
+[4] 실습 환경 구성  
+====================================
+
+# 작업경로 : /home/내계정/practice
+
+# 작업경로 만들기 
+> cd /home/shinjkeon
+> mkdir -p ~/practice
+> cd ~/practice
+> sudo apt update
+
+# 가상환경 만들기 (venv)    (venv) shinjkeon
+
+> python3 -m venv venv
+> source venv/bin/activate
+
+#분석라이브러리 설치 [(venv)에서 설치 ]
+> pip install fastapi uvicorn scikit-learn joblib numpy pandas seaborn matplotlib
+
+# ==============================================================
+# 5. AI 모델 생성
+# ==============================================================
+
+# 1. 간단한 머신러닝 모델을 학습하고 결과(model.pkl)를 저장하는 과정
+
+vim make_model.py    # 코드 작성
+:set paste > i(입력모드 변환) > ctrl + v > esc(입력모드 종료) > :wq!(저장) > enter
+
+----------------------------------------------------------------make_model.py
+#make_model.py (학습 모델 생성)
+from sklearn.ensemble import RandomForestClassifier
+import numpy as np
+import joblib
+
+X = np.random.randn(200, 3)
+y = (X[:,0] + X[:,1] > 0).astype(int)
+
+model = RandomForestClassifier()
+model.fit(X, y)
+
+joblib.dump(model, "model.pkl")
+print("model.pkl 생성 완료!")
+----------------------------------------------------------------
+
+# 코드 확인
+cat make_model.py    # 코드 내용 보이면 정상
+
+# 실행
+python make_model.py
+
+----------------------------------------------------------------app.py
+## app.py
+from fastapi import FastAPI
+import joblib
+
+app = FastAPI()
+model = joblib.load("model.pkl")
+
+@app.get("/predict")
+def predict(f1: float, f2: float, f3: float):
+    pred = model.predict([[f1, f2, f3]])
+    return {"prediction": int(pred[0])}
+----------------------------------------------------------------
+
+# app.py 실행
+uvicorn app:app --host 0.0.0.0 --port 8000
+
+# 브라우저 테스트
+http://localhost:8000/predict?f1=0.1&f2=-1&f3=2.5
+
+
+# ==============================================================
+# 6. Dockerfile로 AI모델 서버 패키징 
+# ==============================================================
+모델 + 서버 + 라이브러리를 이미지로 묶어 어디서든 실행 가능하도록 만듦
+
+
+-> 도커파일에 한번에 실행시킬 것들을 만들어서 넣는다. 
+------------------------------------------------dockerfile
+## app.py
+from fastapi import FastAPI
+import joblib
+
+app = FastAPI()
+model = joblib.load("model.pkl")
+
+@app.get("/predict")
+def predict(f1: float, f2: float, f3: float):
+    pred = model.predict([[f1, f2, f3]])
+    return {"prediction": int(pred[0])}
+--------------------------------------------------------
+
+# 이미지 빌드 
+> sudo docker build -t ai/model:v1 .
+
+# 도커 서버 실행
+> sudo docker run -d -p 8000:8000 ai/model:v1
+
+#실행확인 
+sudo docker ps
+
+#결과 테스트 (web)
+http://localhost:8000/predict?f1=0.1&f2=-1&f3=2.5
+{"prediction":0}
+
+
+
+# ==============================================================
+# 7. Docker 스케일링 실습(K8s Deployment 유사 실습)
+# ==============================================================
+
+자동 복구 개념 
+
+# 서버 3개 띄우기 
+# 도커 서버 종료
+sudo docker stop 893480a386de 
+
+sudo docker run -d -p 8001:8000 ai/model:v1
+sudo docker run -d -p 8002:8000 ai/model:v1
+sudo docker run -d -p 8003:8000 ai/model:v1
+sudo docker ps
+
+
+# 결과 TEST
+http://localhost:8000/predict?f1=5.3&f2=-1&f3=8  <--- 실행 안됨
+http://localhost:8001/predict?f1=5.3&f2=-1&f3=8  <--- 실행됨
+http://localhost:8002/predict?f1=5.3&f2=-1&f3=8  <--- 실행됨
+http://localhost:8003/predict?f1=5.3&f2=-1&f3=8  <--- 실행됨
+
+
+
+# ==============================================================
+# 8. 무중단 모델 업데이트 (Rolling Update)
+# ==============================================================
+
+# 새로운 v2 모델 생성
+vim make_model_v2.py
+
+----------------------------------------------------------------
+from sklearn.linear_model import LogisticRegression
+import numpy as np
+import joblib
+
+X = np.random.randn(200, 3)
+y = (X[:,0] + X[:,1] > 0).astype(int)
+
+model = LogisticRegression()
+model.fit(X, y)
+
+joblib.dump(model, "model.pkl")
+print("v2 모델 생성 완료!")
+----------------------------------------------------------------
+
+# v2 모델 실행 → model.pkl을 새로운 모델로 교체
+python make_model_v2.py
+
+# ==============================================================
+# 모델 교체 v1 → v2
+# ==============================================================
+
+
+
+
+# v2 모델 이미지 빌드 
+sudo docker build -t ai/model:v2 .
+sudo docker ps                           <- 8001,8002,8003 서버 실행되고 있음 
+
+
+
+# 기존 v1 모델의 컨테이너를 하나씩 교체 
+sudo 
+
+8003->8000/tcp, [::]:8003->8000/tcp   pedantic_tu
+8002->8000/tcp, [::]:8002->8000/tcp   quirky_kirch
+
+
+
+# 도커 서버 전체 종료
+docker stop $(docker ps -aq)
+
+
+--------------------------------------------------------
+version: '3'
+
+services:
+  model1:
+    image: ai/model:v1
+    ports:
+      - "8001:8000"
+
+  model2:
+    image: ai/model:v1
+    ports:
+      - "8002:8000"
+
+  model3:
+    image: ai/model:v1
+    ports:
+      - "8003:8000"
+--------------------------------------------------------
+
+sudo docker ps

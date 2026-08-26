@@ -1,0 +1,369 @@
+# ==============================================================
+# MLOps 실습
+# ==============================================================
+
+- 시나리오 1: 모델 학습(train.py)    -> 학습 -> 학습결과 파일생성 
+- 시나리오 2: FastAPI 예측 서버 + Drift 감지(app.py)
+- 시나리오 3: Drift 발생 시 자동 재학습(train_retrain.py)
+- 시나리오 4: 모델 변경 감지 및 FastAPI 자동 재시작(watch_reload.py)
+- 시나리오 5: Docker + Docker Compose 기반 MLOps 통합 실습(Dockerfile / docker-compose.yml)
+
+# 작업경로: ~/mlops-practice/
+train.py
+app.py
+train_retrain.py
+watch_reload.py
+Dockerfile
+docker-compose.yml
+
+#========================================================================
+# 시나리오 1 - 모델 최초 학습 (train.py)
+#========================================================================
+
+# 목적
+• 기본 모델(RandomForestClassifier) 학습
+• model.pkl 파일 생성
+• Drift 기준(reference) 데이터 저장
+
+
+vim train.py 파일 생성
+
+
+********************************************************************************
+import numpy as np
+import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.ensemble import RandomForestClassifier
+
+
+# ------------------------------------------------------------
+# 1. 학습 데이터 생성
+# ------------------------------------------------------------
+
+# 정규분포를 따르는 실수 데이터 200개 생성
+X = np.random.randn(200, 1)
+
+# threshold(0)을 기준으로 이진 라벨 생성
+y = (X[:, 0] > 0).astype(int)
+
+
+# ------------------------------------------------------------
+# 2. 모델 학습
+# ------------------------------------------------------------
+
+model = RandomForestClassifier()
+model.fit(X, y)
+
+
+# ------------------------------------------------------------
+# 3. 학습된 모델과 레퍼런스 데이터 저장
+# ------------------------------------------------------------
+
+joblib.dump(model, "model.pkl")      # 모델 저장
+np.save("reference.npy", X)           # 학습 당시 데이터 분포 저장
+
+print("모델 학습 완료: model.pkl / reference.npy 생성됨")
+
+
+# ------------------------------------------------------------
+# 4. 학습 데이터 분포 시각화
+# ------------------------------------------------------------
+
+# 데이터 로드
+reference = np.load("reference.npy")
+
+# 분포 시각화
+plt.figure(figsize=(10, 5))
+
+# 히스토그램 + KDE
+sns.histplot(reference[:, 0], bins=30, kde=True)
+
+plt.title("Reference Data Distribution (Training Data)")
+plt.xlabel("Feature Value")
+plt.ylabel("Frequency")
+
+plt.grid()
+plt.show()
+
+********************************************************************************
+
+
+# python 파일 실행 
+python train.py
+
+#========================================================================
+# 시나리오 2 - FastAPI 예측서버 + Drift 감지 (app.py)
+#========================================================================
+# 목적
+• /predict API에서 실시간 예측 수행
+• 요청 값 누적(incoming)
+• 50개 이상 쌓이면 KS-test로 Drift 감지
+• drift_detected=True이면 incoming.npy 저장
+• 자동 재학습(train_retrain.py) 트리거
+
+app.py 생성
+# vim app.py
+
+************************************************************************************
+"""
+app.py
+- FastAPI 실시간 예측 API
+- 요청 데이터 누적 후 KS-test 기반 drift 감지
+- drift 발생 시 incoming.npy 저장 및 자동 재학습 트리거
+"""
+
+from fastapi import FastAPI
+import numpy as np
+import joblib
+from scipy.stats import ks_2samp
+import subprocess
+
+app = FastAPI()
+
+# ---------------------------------------------------------
+# 1. 모델과 기준(reference) 데이터 로드
+# ---------------------------------------------------------
+model = joblib.load("model.pkl")
+reference = np.load("reference.npy").ravel()   # KS-test 용 1차원 데이터
+incoming = []  # 운영 데이터 누적 리스트
+
+# ---------------------------------------------------------
+# 2. 예측 엔드포인트
+# ---------------------------------------------------------
+@app.get("/predict")
+def predict(value: float):
+    """
+    입력된 value 값에 대해 예측을 수행하고,
+    incoming 데이터를 누적하여 drift 여부를 반환한다.
+    """
+
+    incoming.append(value)
+
+    drift_detected = False  # 기본값
+
+    # ---------------------------------------------------------
+    # Drift 감지: 50개 이상 쌓이면 KS-test 수행
+    # ---------------------------------------------------------
+    if len(incoming) > 50:
+        stat, p = ks_2samp(reference, incoming)
+        drift_detected = bool(p < 0.05)  # numpy.bool → python bool 변환
+
+        if drift_detected:
+            print(" Drift 감지 → incoming.npy 저장")
+            np.save("incoming.npy", np.array(incoming))
+
+            # 자동 재학습 프로세스 실행
+            subprocess.Popen(["python3", "train_retrain.py"])
+
+    # ---------------------------------------------------------
+    # 모델 예측 수행
+    # ---------------------------------------------------------
+    pred = model.predict([[value]])  # 입력 shape(1,1) 유지 필수
+
+    return {
+        "value": value,
+        "prediction": int(pred[0]),
+        "drift_detected": drift_detected,
+        "sample_size": len(incoming)
+    }
+***************************************************************************************
+
+# 서버 실행 
+uvicorn app:app --host 0.0.0.0 --port 8000
+
+
+
+# 테스트 
+우분투창 하나 실행 (클라이언트 역할)
+
+# 정상 데이터 (드리프트 없음) : 레이블 1
+for i in $(seq 1 40); do curl "http://localhost:8000/predict?value=0.1"; echo; done
+for i in $(seq 1 10); do curl "http://localhost:8000/predict?value=10"; echo; done
+
+# 이상 데이터 (Drift 유도, 음수 데이터 입력) : 레이블 0
+for i in $(seq 1 20); do curl "http://localhost:8000/predict?value=-5"; echo; done
+
+
+
+# Drift 감지 결과
+Drift 발생하면 API 응답:
+"drift_detected": true 로 변경
+
+
+# 터미널 로그
+Drift 감지
+→ incoming.npy 저장
+→ train_retrain.py 트리거 실행
+
+
+
+# ==============================================================
+# 시나리오 3 - Drift 발생 시 자동 재학습(train_retrain.py)
+# ==============================================================
+
+# 목적
+• incoming.npy 기반으로 재학습
+• 단일 클래스(class=1만 존재 등)일 경우 오류 방지
+• 재학습된 model.pkl 업데이트
+
+
+# train_retrain.py 파일생성
+
+*******************************************************************************************
+"""
+train_retrain.py
+- Drift 발생 후 저장된 incoming.npy로 재학습 수행
+- 단일 클래스 데이터일 경우 재학습 생략하여 오류 방지
+"""
+
+import numpy as np
+import joblib
+from sklearn.linear_model import LogisticRegression
+
+print(" 재학습 시작")
+
+# ---------------------------------------------------------
+# 1. incoming 데이터 로드
+# ---------------------------------------------------------
+incoming = np.load("incoming.npy")
+X = incoming.reshape(-1, 1)           # 2차원으로 변환
+y = (X[:,0] > 0).astype(int)          # threshold 기반 라벨 생성
+
+# ---------------------------------------------------------
+# 2. 단일 클래스 여부 체크
+# ---------------------------------------------------------
+unique_classes = np.unique(y)
+print("incoming 데이터 클래스:", unique_classes)
+
+if len(unique_classes) < 2:
+    print("단일 클래스 → 재학습 스킵")
+    exit(0)
+
+# ---------------------------------------------------------
+# 3. 모델 재학습
+# ---------------------------------------------------------
+model = LogisticRegression()
+model.fit(X, y)
+
+# ---------------------------------------------------------
+# 4. 새로운 모델 저장
+# ---------------------------------------------------------
+joblib.dump(model, "model.pkl")
+
+print(" 재학습 완료 → model.pkl 업데이트됨")
+*******************************************************************************************
+
+# 실행은 app.py 파일에서 drift 감지가 발생하면 train_retrain.py 파일 트리거를 걸어 두어서 자동으로 실행이 되고 / 실행 후 model.pkl 파일이 업데이트 됨 
+
+파이썬 트레인 실행
+python train.py
+
+유비콘 서버 실행 
+uvicorn app:app --host 0.0.0.0 --port 8000
+
+다른 우분투 열어서 
+# 정상 데이터 (드리프트 없음) : 레이블 1
+for i in $(seq 1 40); do curl "http://localhost:8000/predict?value=0.1"; echo; done
+for i in $(seq 1 10); do curl "http://localhost:8000/predict?value=10"; echo; done
+
+# 이상 데이터 (Drift 유도, 음수 데이터 입력) : 레이블 0
+for i in $(seq 1 20); do curl "http://localhost:8000/predict?value=-5"; echo; done
+
+  트리거 -> train_retrain.py 알아서 실행 -> 재학습 완료 → model.pkl 업데이트됨 
+
+
+
+# ==============================================================
+# 시나리오 4 - 모델 변경감지 -> FastAPI 자동 Reload(watch_reload.py)
+# ==============================================================
+
+목적 
+- model.pkl 이 변경되면 
+  - FastAPI 서버 자동재시작
+  - 자동 재배포 효과
+
+#리로드 파일 생성 
+watch_reload.py 생성 
+
+************************************************************************************
+"""
+watch_reload.py
+- model.pkl 파일의 수정시간(mtime)을 모니터링
+- 변경되면 FastAPI 서버를 자동 재시작하여 새로운 모델 즉시 반영
+"""
+
+import os
+import time
+import subprocess
+
+MODEL_FILE = "model.pkl"
+
+# ---------------------------------------------------------
+# model.pkl의 수정 시간 반환 함수
+# ---------------------------------------------------------
+def get_ts():
+    return os.path.getmtime(MODEL_FILE)
+
+print("model.pkl 변경 감지 시작")
+
+last_ts = get_ts()
+
+# ---------------------------------------------------------
+# FastAPI 최초 실행
+# ---------------------------------------------------------
+process = subprocess.Popen([
+    "uvicorn", "app:app",
+    "--host", "0.0.0.0",
+    "--port", "8000"
+])
+
+# ---------------------------------------------------------
+# 파일 변경 감지 루프
+# ---------------------------------------------------------
+while True:
+    time.sleep(1)
+    new_ts = get_ts()
+
+    if new_ts != last_ts:  # 변경됨
+        print("model.pkl 변경 감지 → FastAPI 재시작")
+
+        process.kill()
+        process = subprocess.Popen([
+            "uvicorn", "app:app",
+            "--host", "0.0.0.0",
+            "--port", "8000"
+        ])
+
+        last_ts = new_ts
+        print("FastAPI 재시작 완료 (새 모델 적용됨)")
+************************************************************************************
+
+(venv) shinjkeon@DESKTOP-B5VPVIO:~/mlops-practice$ python watch_reload.py
+FastAPI 재시작 완료 (새 모델 적용됨)
+INFO:     Started server process [6956]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+
+다른 우분투 열어서 
+# 정상 데이터 (드리프트 없음) : 레이블 1
+for i in $(seq 1 40); do curl "http://localhost:8000/predict?value=0.1"; echo; done
+for i in $(seq 1 10); do curl "http://localhost:8000/predict?value=10"; echo; done
+
+# 이상 데이터 (Drift 유도, 음수 데이터 입력) : 레이블 0
+for i in $(seq 1 20); do curl "http://localhost:8000/predict?value=-5"; echo; done
+
+이상 데이터 들어오면 재학습 -> model.pkl 변경 -> 변경감지 -> FastAPI 재시작 
+
+incoming 데이터 클래스: [0 1]
+ 재학습 완료 → model.pkl 업데이트됨
+model.pkl 변경 감지 → FastAPI 재시작
+FastAPI 재시작 완료 (새 모델 적용됨)
+ 재학습 완료 → model.pkl 업데이트됨
+model.pkl 변경 감지 → FastAPI 재시작
+FastAPI 재시작 완료 (새 모델 적용됨)
+
+
+
